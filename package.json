@@ -1,6 +1,6 @@
 {
   "name": "@fub4r/nuls",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "List the NuGet packages a repository references, and merge those listings across many repositories into one report",
   "keywords": [
     "nuget",
