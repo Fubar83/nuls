@@ -78,47 +78,83 @@ function elementsIn(xml) {
 }
 
 /**
- * Where a project goes looking for a version it does not state itself.
+ * Reading the project files, for when MSBuild is not asked.
  *
- * MSBuild imports the nearest Directory.Packages.props walking up from the
- * project, so the nearest one wins here too.
+ * MSBuild looks for Directory.Packages.props and Directory.Build.props
+ * independently, so they are searched independently here: a Directory.Build.props
+ * in between must not hide the central versions above it, which is exactly how a
+ * repository with a tests/Directory.Build.props ends up reporting no versions at
+ * all for its test projects.
+ *
+ * A Directory.Build.props may also carry references of its own — the usual way
+ * every test project gets xunit without repeating itself. Those belong to each
+ * project below it, so they are added to every one of them. Chaining up to the
+ * parent is the convention, so every ancestor counts, not only the nearest.
  */
 function readFromFiles(files, root) {
-  const byDirectory = new Map();
+  const central = new Map();
+  const build = new Map();
+  const inherited = new Map();
 
   for (const file of files) {
-    if (!VERSION_SOURCE.test(path.basename(file))) continue;
+    const name = path.basename(file);
+    if (!VERSION_SOURCE.test(name)) continue;
+
     const directory = path.dirname(file);
-    const versions = byDirectory.get(directory) ?? new Map();
-    for (const { package: id, version } of elementsIn(contents(file))) {
-      if (version !== null) versions.set(id.toLowerCase(), version);
+    const isCentral = /packages\.props$/i.test(name);
+    const versions = (isCentral ? central : build).get(directory) ?? new Map();
+    const references = inherited.get(directory) ?? [];
+
+    for (const found of elementsIn(contents(file))) {
+      if (found.version !== null) versions.set(found.package.toLowerCase(), found.version);
+      // An Include in a shared file is a reference every project below gets.
+      if (!found.held) references.push(found);
     }
-    byDirectory.set(directory, versions);
+
+    (isCentral ? central : build).set(directory, versions);
+    if (references.length > 0) inherited.set(directory, references);
   }
 
-  const nearest = (projectFile) => {
-    // Walk up towards the repository root, nearest first.
+  /** Walk up from a project, nearest first, and hand back what each level holds. */
+  const ancestors = function* (projectFile) {
     let directory = path.dirname(projectFile);
     while (true) {
-      const versions = byDirectory.get(directory);
-      if (versions) return versions;
-      if (directory === root || path.dirname(directory) === directory) return new Map();
+      yield directory;
+      if (directory === root || path.dirname(directory) === directory) return;
       directory = path.dirname(directory);
     }
   };
 
-  /**
-   * Reading one project the way MSBuild would have, minus the parts only
-   * MSBuild can do: a property stays a property, and a condition is ignored.
-   */
+  const nearestIn = (map, projectFile) => {
+    for (const directory of ancestors(projectFile)) {
+      const found = map.get(directory);
+      if (found) return found;
+    }
+    return new Map();
+  };
+
   return (projectFile) => {
-    const central = nearest(projectFile);
-    return elementsIn(contents(projectFile))
-      .filter((found) => !found.held)
-      .map((found) => ({
-        package: found.package,
-        version: found.version ?? central.get(found.package.toLowerCase()) ?? null,
-      }));
+    const versions = new Map([
+      ...nearestIn(build, projectFile),
+      // Central package management is the more specific answer of the two.
+      ...nearestIn(central, projectFile),
+    ]);
+
+    const own = elementsIn(contents(projectFile)).filter((found) => !found.held);
+    const fromAbove = [...ancestors(projectFile)].flatMap(
+      (directory) => inherited.get(directory) ?? [],
+    );
+
+    const rows = new Map();
+    for (const found of [...own, ...fromAbove]) {
+      const version = found.version ?? versions.get(found.package.toLowerCase()) ?? null;
+      // A project stating its own version beats one it inherits.
+      if (!rows.has(found.package.toLowerCase())) {
+        rows.set(found.package.toLowerCase(), { package: found.package, version });
+      }
+    }
+
+    return [...rows.values()];
   };
 }
 

@@ -103,3 +103,33 @@ export const UPDATED = {
   ].join('\n'),
   'src/App/App.csproj': '<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="Serilog" /></ItemGroup></Project>',
 };
+
+/**
+ * The shape a real repository turned out to have: central versions at the
+ * root, and a tests/Directory.Build.props that sets properties and shares
+ * references but holds no versions of its own.
+ */
+export const SHARED_TESTS = {
+  'Directory.Packages.props': [
+    '<Project>',
+    '  <PropertyGroup><ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally></PropertyGroup>',
+    '  <ItemGroup>',
+    '    <PackageVersion Include="NetArchTest.Rules" Version="1.3.2" />',
+    '    <PackageVersion Include="xunit.v3" Version="4.0.1" />',
+    '  </ItemGroup>',
+    '</Project>',
+  ].join('\n'),
+  'tests/Directory.Build.props': [
+    '<Project>',
+    '  <PropertyGroup><IsTestProject>true</IsTestProject></PropertyGroup>',
+    '  <ItemGroup>',
+    '    <PackageReference Include="xunit.v3" />',
+    '  </ItemGroup>',
+    '</Project>',
+  ].join('\n'),
+  'tests/Arch.Tests/Arch.Tests.csproj': [
+    '<Project Sdk="Microsoft.NET.Sdk">',
+    '  <ItemGroup><PackageReference Include="NetArchTest.Rules" /></ItemGroup>',
+    '</Project>',
+  ].join('\n'),
+};
