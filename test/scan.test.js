@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { after, test } from 'node:test';
 import { scanRepo } from '../src/scan.js';
-import { CENTRAL, CLASSIC, LEGACY, NESTED, UPDATED, cleanUp, tempDir, writeTree } from './fixtures.js';
+import { CENTRAL, CLASSIC, LEGACY, NESTED, SHARED_TESTS, UPDATED, cleanUp, tempDir, writeTree } from './fixtures.js';
 
 after(cleanUp);
 
@@ -108,4 +108,27 @@ test('a filter narrows to one family of packages', async () => {
 
   assert.ok(rows.length > 0);
   assert.ok(rows.every((row) => row.package.startsWith('MyCompany.')));
+});
+
+test('a Directory.Build.props in between does not hide the central versions', async () => {
+  const repo = await writeTree(await tempDir(), SHARED_TESTS);
+
+  const rows = await scanRepo(repo, { engine: 'files' });
+
+  // MSBuild looks for Directory.Packages.props and Directory.Build.props
+  // independently; searching them as one list meant a tests/ file holding no
+  // versions shadowed the central ones above it, and every test project
+  // reported no version at all.
+  assert.equal(versionOf(rows, 'NetArchTest.Rules'), '1.3.2');
+});
+
+test('a reference shared by a Directory.Build.props belongs to the projects below it', async () => {
+  const repo = await writeTree(await tempDir(), SHARED_TESTS);
+
+  const rows = await scanRepo(repo, { engine: 'files' });
+
+  // How every test project gets xunit without repeating itself. Attributing
+  // it to no project at all left it out of the report entirely.
+  assert.equal(versionOf(rows, 'xunit.v3'), '4.0.1');
+  assert.equal(rows.find((row) => row.package === 'xunit.v3').project, 'tests/Arch.Tests/Arch.Tests.csproj');
 });
