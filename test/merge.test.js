@@ -12,7 +12,7 @@ test('the same package at different versions is one entry', () => {
   ]);
 
   assert.equal(report.length, 1);
-  assert.equal(report[0].spread, 2);
+  assert.equal(report[0].versionsInUse, 2);
   assert.equal(report[0].repos, 3);
   assert.deepEqual(
     report[0].versions.map((one) => [one.version, one.repos]),
@@ -44,7 +44,7 @@ test('two projects in one repository on different versions still disagree', () =
   ]);
 
   // A repository at odds with itself is worth seeing, not flattening away.
-  assert.equal(report[0].spread, 2);
+  assert.equal(report[0].versionsInUse, 2);
   assert.equal(report[0].repos, 1);
 });
 
@@ -56,7 +56,7 @@ test('an unevaluated property is not a version anyone chose', () => {
 
   // --files leaves properties as written; counting one as a version would say
   // two repositories disagree when nothing of the sort has been shown.
-  assert.equal(report[0].spread, 1);
+  assert.equal(report[0].versionsInUse, 1);
 });
 
 test('a reference with no version found is not a version either', () => {
@@ -65,7 +65,7 @@ test('a reference with no version found is not a version either', () => {
     row('web', 'b.csproj', 'Orphan', '1.0.0'),
   ]);
 
-  assert.equal(report[0].spread, 1);
+  assert.equal(report[0].versionsInUse, 1);
   assert.ok(report[0].versions.some((one) => one.version === '(no version found)'));
 });
 

@@ -38,7 +38,7 @@ const references = (rows, filter) => rows.filter((row) => row.package && wanted(
  * One entry per package: which versions are in use, and which repositories
  * are on each.
  *
- * `spread` counts the versions actually declared — a reference nothing
+ * `versionsInUse` counts the versions actually declared — a reference nothing
  * declares a version for is not a version anyone chose, so it does not make a
  * package look more fragmented than it is.
  */
@@ -71,13 +71,13 @@ export function byPackage(rows, { filter = null } = {}) {
       const repos = new Set(versions.flatMap((one) => one.repos));
       return {
         package: entry.package,
-        spread: versions.filter((one) => one.version !== NO_VERSION && !isProperty(one.version))
+        versionsInUse: versions.filter((one) => one.version !== NO_VERSION && !isProperty(one.version))
           .length,
         repos: repos.size,
         versions,
       };
     })
-    .sort((a, b) => b.spread - a.spread || b.repos - a.repos || byName(a.package, b.package));
+    .sort((a, b) => b.versionsInUse - a.versionsInUse || b.repos - a.repos || byName(a.package, b.package));
 }
 
 /** The same rows as a tree: repository, then project, then packages. */
@@ -112,7 +112,7 @@ export function formatByPackage(report) {
 
   const lines = [];
   for (const entry of report) {
-    const split = entry.spread > 1 ? `  — ${entry.spread} versions in use` : '';
+    const split = entry.versionsInUse > 1 ? `  — ${entry.versionsInUse} versions in use` : '';
     lines.push(`${entry.package}${split}`);
     for (const { version, repos } of entry.versions) {
       lines.push(`  ${version.padEnd(18)} ${repos.join(', ')}`);

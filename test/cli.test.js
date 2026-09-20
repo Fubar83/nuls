@@ -97,7 +97,7 @@ test('scans from several repositories merge into one report', async () => {
   const report = JSON.parse(merged.stdout);
   const serilog = report.find((entry) => entry.package === 'Serilog');
   assert.equal(merged.code, 0);
-  assert.equal(serilog.spread, 2);
+  assert.equal(serilog.versionsInUse, 2);
 });
 
 test('--by project gives the other view of the same rows', async () => {

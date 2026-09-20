@@ -105,7 +105,7 @@ Output is already JSON whenever it is piped or redirected. `--json` asks for it 
 
 Each line carries the repository, the project, the package and the version — one line per reference, not one per project, because a line that stands on its own is what lets a sweep concatenate without any framing.
 
-With `--merge` it gives the report as structured data instead: one entry per package with `spread`, `repos` and the versions each repository and project is on, or the repository/project tree under `--by project`.
+With `--merge` it gives the report as structured data instead: one entry per package with `versionsInUse`, `repos` and the versions each repository and project is on, or the repository/project tree under `--by project`.
 
 A repository with nothing to report still prints one line, with `package: null`, so that "nothing here" is data rather than silence.
 
