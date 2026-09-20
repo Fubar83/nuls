@@ -24,7 +24,14 @@ $ head -2 inventory.ndjson
 {"repo":"customer-web","project":"src/Web/Web.csproj","package":"Serilog","version":"4.2.0"}
 ```
 
-`repwrk` writes its `==>` headers to standard error and the command's own output to standard output, which is why only the packages reach the file.
+`repwrk` writes its `==>` headers to standard error and the command's own output to standard output, which is why only the packages reach the file — or the next command:
+
+```console
+$ repwrk foreach --parallel nuls | nuls --merge
+Serilog  — 2 versions in use
+  3.1.1              customer-api
+  4.2.0              customer-jobs, customer-web
+```
 
 ## Install
 
@@ -43,9 +50,46 @@ No restore and no network either way: MSBuild is asked to *evaluate* a project, 
 
 ```
 nuls [--filter <glob>] [--json] [--files]
+nuls --merge [--by package|project] [--filter <glob>] [--json]
 ```
 
-That is the whole surface. It reads the repository in the current directory and prints what it finds; combining, filtering further or counting is whatever reads the lines.
+`nuls` on its own reads the repository in the current directory. `nuls --merge` reads those listings back on standard input and reports across all of them.
+
+### `--merge`
+
+**By package** — the default, and the reason to merge at all: which versions of something are in play, and who is on each.
+
+```console
+$ repwrk foreach --parallel nuls | nuls --merge
+Serilog  — 2 versions in use
+  3.1.1              customer-api
+  4.2.0              customer-jobs, customer-web
+
+Polly
+  7.2.4              customer-api
+```
+
+Packages are ordered by how split they are, so whatever is most inconsistent is the first thing you read. Two projects *within one repository* on different versions count as split too — a repository at odds with itself is worth seeing.
+
+Neither `(no version found)` nor an unevaluated `$(Property)` counts towards that number. Neither is a version anyone chose, so neither can show that two repositories disagree.
+
+**By project** — the same rows as a tree, for reading an estate rather than interrogating it.
+
+```console
+$ repwrk foreach --parallel nuls | nuls --merge --by project
+customer-api
+  src/Api/Api.csproj
+    Polly                                        7.2.4
+    Serilog                                      3.1.1
+  tests/Api.Tests/Api.Tests.csproj
+    xunit.v3                                     4.0.1
+
+customer-web
+  src/Web/Web.csproj
+    Serilog                                      4.2.0
+```
+
+A line that is not JSON is skipped with a note, so a stray header cannot spoil a report.
 
 ### `--filter <glob>`
 
@@ -60,6 +104,8 @@ repwrk foreach --parallel nuls --filter "MyCompany.*"
 Output is already JSON whenever it is piped or redirected. `--json` asks for it at a terminal too.
 
 Each line carries the repository, the project, the package and the version — one line per reference, not one per project, because a line that stands on its own is what lets a sweep concatenate without any framing.
+
+With `--merge` it gives the report as structured data instead: one entry per package with `versionsInUse`, `repos` and the versions each repository and project is on, or the repository/project tree under `--by project`.
 
 A repository with nothing to report still prints one line, with `package: null`, so that "nothing here" is data rather than silence.
 

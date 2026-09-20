@@ -9,12 +9,13 @@ after(cleanUp);
 const CLI = fileURLToPath(new URL('../bin/nuls.js', import.meta.url));
 
 /** Run the CLI itself, so exit codes and the output split are covered too. */
-function nuls(args, { cwd } = {}) {
+function nuls(args, { cwd, stdin = null } = {}) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, ...args], {
       cwd,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     });
+    if (stdin !== null) child.stdin.end(stdin);
     let stdout = '';
     let stderr = '';
     child.stdout.setEncoding('utf8');
@@ -79,8 +80,50 @@ test('an empty filter is an error, not everything', async () => {
 });
 
 test('an unknown option is an error', async () => {
-  const result = await nuls(['--merge']);
+  const result = await nuls(['--merg']);
 
   assert.equal(result.code, 2);
-  assert.match(result.stderr, /unknown option '--merge'/);
+  assert.match(result.stderr, /unknown option '--merg'/);
+});
+
+test('scans from several repositories merge into one report', async () => {
+  const one = await writeTree(await tempDir(), CLASSIC);
+  const two = await writeTree(await tempDir(), CENTRAL);
+
+  const scans =
+    (await nuls(['--files'], { cwd: one })).stdout + (await nuls(['--files'], { cwd: two })).stdout;
+  const merged = await nuls(['--merge', '--json'], { stdin: scans });
+
+  const report = JSON.parse(merged.stdout);
+  const serilog = report.find((entry) => entry.package === 'Serilog');
+  assert.equal(merged.code, 0);
+  assert.equal(serilog.versionsInUse, 2);
+});
+
+test('--by project gives the other view of the same rows', async () => {
+  const repo = await writeTree(await tempDir(), CLASSIC);
+
+  const scan = (await nuls(['--files'], { cwd: repo })).stdout;
+  const merged = await nuls(['--merge', '--by', 'project', '--json'], { stdin: scan });
+
+  const [entry] = JSON.parse(merged.stdout);
+  assert.equal(entry.projects[0].project, 'src/Api/Api.csproj');
+  assert.ok(entry.projects[0].packages.some((one) => one.package === 'Serilog'));
+});
+
+test('a line that is not JSON is skipped rather than fatal', async () => {
+  const stdin = '==> a stray header\n{"repo":"api","project":"a.csproj","package":"Serilog","version":"3.1.1"}\n';
+
+  const result = await nuls(['--merge'], { stdin });
+
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /Serilog/);
+  assert.match(result.stderr, /not JSON/);
+});
+
+test('--by only takes the two views it has', async () => {
+  const result = await nuls(['--merge', '--by', 'repo'], { stdin: '' });
+
+  assert.equal(result.code, 2);
+  assert.match(result.stderr, /--by takes/);
 });

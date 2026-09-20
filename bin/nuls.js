@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+  byPackage,
+  byProject,
+  formatByPackage,
+  formatByProject,
+} from '../src/merge.js';
 import { scanRepo } from '../src/scan.js';
 
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
@@ -8,13 +14,19 @@ const { version } = JSON.parse(readFileSync(new URL('../package.json', import.me
 const USAGE = `nuls — list the NuGet packages a repository references
 
 Usage:
-  nuls [--filter <glob>] [--json]
+  nuls [--filter <glob>] [--json] [--files]
+  nuls --merge [--by package|project] [--filter <glob>] [--json]
 
 Options:
   --filter <glob>   Only packages whose name matches, e.g. "MyCompany.*"
-  --json            One JSON object per line, even at a terminal
+  --json            Machine-readable output
   --files           Read the project files instead of asking MSBuild: faster,
                     but a version written as a property stays a property
+  --merge           Read listings on standard input and report across them
+  --by <view>       What a merged report is grouped by:
+                      package  which versions are in use, and who is on each
+                               (the default)
+                      project  repository, then project, then its packages
   --help            Show this help
 
 Reads the repository in the current directory: no SDK, no restore, no network.
@@ -24,10 +36,10 @@ references it, so every line says what that project is on.
 Piped or redirected, every line is JSON and names the repository it came
 from, so a sweep across many repositories needs no glue:
 
-  repwrk foreach --parallel nuls > inventory.ndjson
+  repwrk foreach --parallel nuls | nuls --merge
 
 repwrk writes its own headers to standard error, so only the packages reach
-the file.`;
+the pipe.`;
 
 const EXIT = { SUCCESS: 0, RUNTIME: 1, USAGE: 2 };
 
@@ -38,7 +50,15 @@ function usageError(message) {
 }
 
 function parse(argv) {
-  const options = { filter: null, json: false, files: false, help: false, version: false };
+  const options = {
+    filter: null,
+    json: false,
+    files: false,
+    merge: false,
+    by: 'package',
+    help: false,
+    version: false,
+  };
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -51,6 +71,15 @@ function parse(argv) {
       options.json = true;
     } else if (token === '--files') {
       options.files = true;
+    } else if (token === '--merge') {
+      options.merge = true;
+    } else if (token === '--by') {
+      const value = argv[index + 1];
+      if (value !== 'package' && value !== 'project') {
+        throw usageError("--by takes 'package' or 'project'");
+      }
+      options.by = value;
+      index += 1;
     } else if (token === '--filter') {
       const value = argv[index + 1];
       // An empty filter would read as "no filter" and widen the listing to
@@ -72,6 +101,52 @@ function parse(argv) {
   }
 
   return options;
+}
+
+function readStdin() {
+  process.stdin.setEncoding('utf8');
+  let data = '';
+  return new Promise((resolve, reject) => {
+    process.stdin.on('data', (chunk) => (data += chunk));
+    process.stdin.on('end', () => resolve(data));
+    process.stdin.on('error', reject);
+  });
+}
+
+/** A line that is not JSON is someone's stray output, not a reason to stop. */
+function parseLines(input) {
+  const rows = [];
+  let ignored = 0;
+
+  for (const line of input.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed === '') continue;
+    try {
+      rows.push(JSON.parse(trimmed));
+    } catch {
+      ignored += 1;
+    }
+  }
+
+  if (ignored > 0) {
+    process.stderr.write(`nuls: ignored ${ignored} line(s) that were not JSON\n`);
+  }
+
+  return rows;
+}
+
+async function merge(options) {
+  const rows = parseLines(await readStdin());
+  const view = options.by === 'project' ? byProject : byPackage;
+  const report = view(rows, { filter: options.filter });
+
+  process.stdout.write(
+    options.json
+      ? `${JSON.stringify(report, null, 2)}\n`
+      : (options.by === 'project' ? formatByProject : formatByPackage)(report),
+  );
+
+  return EXIT.SUCCESS;
 }
 
 /** At a terminal, under the project that references them. */
@@ -98,6 +173,8 @@ async function run(argv) {
     process.stdout.write(`${version}\n`);
     return EXIT.SUCCESS;
   }
+
+  if (options.merge) return merge(options);
 
   const directory = process.cwd();
   const rows = await scanRepo(directory, {
