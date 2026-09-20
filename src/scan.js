@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { globToRegExp } from './glob.js';
+import { referencesIn } from './msbuild.js';
 
 /**
  * Reading what a repository declares.
@@ -82,7 +83,7 @@ function elementsIn(xml) {
  * MSBuild imports the nearest Directory.Packages.props walking up from the
  * project, so the nearest one wins here too.
  */
-function versionSources(files, root) {
+function readFromFiles(files, root) {
   const byDirectory = new Map();
 
   for (const file of files) {
@@ -95,7 +96,7 @@ function versionSources(files, root) {
     byDirectory.set(directory, versions);
   }
 
-  return (projectFile) => {
+  const nearest = (projectFile) => {
     // Walk up towards the repository root, nearest first.
     let directory = path.dirname(projectFile);
     while (true) {
@@ -104,6 +105,20 @@ function versionSources(files, root) {
       if (directory === root || path.dirname(directory) === directory) return new Map();
       directory = path.dirname(directory);
     }
+  };
+
+  /**
+   * Reading one project the way MSBuild would have, minus the parts only
+   * MSBuild can do: a property stays a property, and a condition is ignored.
+   */
+  return (projectFile) => {
+    const central = nearest(projectFile);
+    return elementsIn(contents(projectFile))
+      .filter((found) => !found.held)
+      .map((found) => ({
+        package: found.package,
+        version: found.version ?? central.get(found.package.toLowerCase()) ?? null,
+      }));
   };
 }
 
@@ -118,48 +133,78 @@ function packagesConfig(xml) {
 
 const relative = (root, file) => path.relative(root, file).split(path.sep).join('/');
 
+/** Run `work` over `items`, a few at a time. */
+async function pooled(items, limit, work) {
+  const results = new Array(items.length);
+  let next = 0;
+
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await work(items[index]);
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return results;
+}
+
+/** How many projects to evaluate at once. */
+const CONCURRENCY = 4;
+
 /**
  * Every package a repository references, as the project that references it
- * would see it: a version held centrally is resolved onto the project, so a
- * row answers "what is this project on" rather than "what does this file say".
+ * would see it.
  *
- * A version this tool cannot work out — no version anywhere, or one written
- * as an MSBuild property — is reported as it stands rather than guessed at.
+ * MSBuild is asked first: it evaluates properties and follows the import
+ * chain, which reading the files cannot do. A project it will not load falls
+ * back to reading, so one broken file does not leave a hole in a sweep —
+ * `onProblem` is told when that happens.
+ *
+ * `engine: 'files'` skips MSBuild entirely, which is faster and answers
+ * without a .NET SDK, at the cost of unevaluated properties.
  */
-export function scanRepo(directory, { filter = null } = {}) {
+export async function scanRepo(directory, { filter = null, engine = 'msbuild', onProblem } = {}) {
   const root = path.resolve(directory);
   const repo = path.basename(root);
   const wanted = filter ? globToRegExp(filter) : null;
   const files = [...projectFiles(root)];
-  const sourceFor = versionSources(files, root);
+  const fromFiles = readFromFiles(files, root);
+  const keep = (found) => !wanted || wanted.test(found.package);
+
+  const projects = files.filter(
+    (file) => !VERSION_SOURCE.test(path.basename(file)) && !PACKAGES_CONFIG.test(path.basename(file)),
+  );
+
+  const evaluated =
+    engine === 'files'
+      ? projects.map(() => null)
+      : await pooled(projects, CONCURRENCY, (file) => referencesIn(file));
+
   const rows = [];
 
-  for (const file of files) {
-    const name = path.basename(file);
-    if (VERSION_SOURCE.test(name)) continue;
-
+  projects.forEach((file, index) => {
     const project = relative(root, file);
+    let found = evaluated[index];
 
-    if (PACKAGES_CONFIG.test(name)) {
-      for (const found of packagesConfig(contents(file))) {
-        if (wanted && !wanted.test(found.package)) continue;
-        rows.push({ repo, project, package: found.package, version: found.version });
-      }
-      continue;
+    if (found === null && engine !== 'files') {
+      onProblem?.(`${project}: MSBuild could not load it; read as a file instead`);
     }
+    found ??= fromFiles(file);
 
-    const central = sourceFor(file);
-    for (const found of elementsIn(contents(file))) {
-      // A project file can hold a version for another project too; that is
-      // not a reference of its own.
-      if (found.held) continue;
-      if (wanted && !wanted.test(found.package)) continue;
-      rows.push({
-        repo,
-        project,
-        package: found.package,
-        version: found.version ?? central.get(found.package.toLowerCase()) ?? null,
-      });
+    for (const one of found) {
+      if (!keep(one)) continue;
+      rows.push({ repo, project, package: one.package, version: one.version });
+    }
+  });
+
+  // Nothing evaluates packages.config: it is a list of versions, not a build.
+  for (const file of files) {
+    if (!PACKAGES_CONFIG.test(path.basename(file))) continue;
+    for (const found of packagesConfig(contents(file))) {
+      if (!keep(found)) continue;
+      rows.push({ repo, project: relative(root, file), package: found.package, version: found.version });
     }
   }
 

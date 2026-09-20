@@ -35,13 +35,14 @@ npm install -g @fub4r/nuls
 ## Requirements
 
 - Node.js 22 or newer
+- The .NET SDK, for the default engine — `--files` needs only Node
 
-No .NET SDK, no restore, no network.
+No restore and no network either way: MSBuild is asked to *evaluate* a project, not to build or restore it.
 
 ## Use
 
 ```
-nuls [--filter <glob>] [--json]
+nuls [--filter <glob>] [--json] [--files]
 ```
 
 That is the whole surface. It reads the repository in the current directory and prints what it finds; combining, filtering further or counting is whatever reads the lines.
@@ -64,16 +65,24 @@ A repository with nothing to report still prints one line, with `package: null`,
 
 ## How a version is worked out
 
-For each reference, in order:
+MSBuild is asked first — `dotnet msbuild -getItem` evaluates a project without restoring it, so properties are expanded and the import chain is followed by the SDK rather than approximated here.
 
-1. `VersionOverride` on the reference
-2. `Version` on the reference, as an attribute or a child element
-3. the nearest `Directory.Packages.props` walking up from the project — the same one MSBuild would import
-4. the nearest `Directory.Build.props` / `.targets`, for the pre-CPM `<PackageReference Update="X" Version="Y" />` spelling
+Two things it leaves to nuls:
 
-Nothing found means the version is reported as missing rather than guessed at: `(no version found)` at a terminal, `null` in JSON. That is a real state — usually a reference to a package no central file declares.
+- **Central package management is applied during restore, not evaluation.** A `PackageReference` under CPM comes back with no version and the `PackageVersion` items come back separately; putting them together is nuls's job.
+- **A multi-targeted project hides its conditional references** from the outer build, where `$(TargetFramework)` is empty. Each framework the project names is asked for in turn, and the answers are combined.
 
-`Directory.Packages.props` is never listed as referencing anything itself. It holds versions for projects; it does not use packages.
+So, for each reference: `VersionOverride`, then the reference's own `Version`, then the matching `PackageVersion`. A version nothing declares is reported as missing rather than guessed at — `(no version found)` at a terminal, `null` in JSON.
+
+`packages.config` is read directly. It is a list of versions, not a build, and MSBuild has nothing to say about it.
+
+### When a project will not load
+
+A malformed project makes MSBuild report an error instead of an answer. nuls says so on standard error and reads the file instead, so one broken file does not leave a hole in a sweep.
+
+### `--files`
+
+Skips MSBuild entirely and reads the project files. Faster, and works without a .NET SDK, at the cost of the two things only MSBuild can do: a version written as a property stays `$(CoreVersion)`, and a condition is ignored rather than evaluated.
 
 ## What it reads
 
@@ -88,21 +97,23 @@ Nothing found means the version is reported as missing rather than guessed at: `
 
 `bin`, `obj`, `node_modules` and `.vs` are never walked into, and a commented-out reference is not a reference.
 
-## What it does not read
+## What it does not tell you
 
 **This is what a repository declares, not what NuGet resolves.**
 
-- **A version written as an MSBuild property** is reported as `$(CoreVersion)`, not as its value. Evaluating it would mean being MSBuild.
-- **Transitive dependencies** are not here at all. Only direct references are.
-- **Conditional `ItemGroup`s** are read as written, whatever their condition.
+- **Transitive dependencies are not here.** Only what a project references directly. Working out the rest means resolving the graph, which means restoring.
+- **A version is a version as declared**, so a range (`[4.0,5.0)`) or a floating version (`4.*`) is reported as written rather than as whatever it would resolve to today.
+- **Nothing is checked against a feed**, so "outdated" and "vulnerable" are questions for another tool.
 
-When you need resolved truth and the repository restores, ask the SDK instead:
+With `--files`, two more: a version written as a property stays `$(CoreVersion)`, and a reference conditioned on a target framework is listed whatever its condition says.
+
+When you want resolved truth, including transitives, ask the SDK:
 
 ```bash
 dotnet list package --include-transitive --format json
 ```
 
-That evaluates MSBuild properly — and needs a successful `dotnet restore` first, in every repository. Reading the files needs nothing, which is the trade: `nuls` still answers in a repository that will not restore, and across forty clones there are usually a few.
+That reports what NuGet actually resolved — and needs a successful `dotnet restore` first, in every repository, which across forty clones is the slow and fragile part. nuls asks MSBuild to *evaluate* rather than restore, which is why it answers in seconds and still answers in a repository that will not restore.
 
 ## Exit codes
 

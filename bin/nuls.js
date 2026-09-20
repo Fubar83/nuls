@@ -13,6 +13,8 @@ Usage:
 Options:
   --filter <glob>   Only packages whose name matches, e.g. "MyCompany.*"
   --json            One JSON object per line, even at a terminal
+  --files           Read the project files instead of asking MSBuild: faster,
+                    but a version written as a property stays a property
   --help            Show this help
 
 Reads the repository in the current directory: no SDK, no restore, no network.
@@ -36,7 +38,7 @@ function usageError(message) {
 }
 
 function parse(argv) {
-  const options = { filter: null, json: false, help: false, version: false };
+  const options = { filter: null, json: false, files: false, help: false, version: false };
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -47,6 +49,8 @@ function parse(argv) {
       options.version = true;
     } else if (token === '--json') {
       options.json = true;
+    } else if (token === '--files') {
+      options.files = true;
     } else if (token === '--filter') {
       const value = argv[index + 1];
       // An empty filter would read as "no filter" and widen the listing to
@@ -83,7 +87,7 @@ function printGrouped(rows) {
   }
 }
 
-function run(argv) {
+async function run(argv) {
   const options = parse(argv);
 
   if (options.help) {
@@ -96,7 +100,14 @@ function run(argv) {
   }
 
   const directory = process.cwd();
-  const rows = scanRepo(directory, { filter: options.filter });
+  const rows = await scanRepo(directory, {
+    filter: options.filter,
+    engine: options.files ? 'files' : 'msbuild',
+    // A project MSBuild will not load is worth saying out loud, but it is
+    // not a reason to fail: the rest of the repository still answers.
+    onProblem: (message) => process.stderr.write(`nuls: ${message}
+`),
+  });
 
   if (options.json || !process.stdout.isTTY) {
     // One line per reference rather than one per project: each line stands on
@@ -126,7 +137,7 @@ process.stdout.on('error', (error) => {
 });
 
 try {
-  process.exitCode = run(process.argv.slice(2));
+  process.exitCode = await run(process.argv.slice(2));
 } catch (error) {
   process.stderr.write(`error: ${error.message}\n`);
   process.exitCode = error.exitCode ?? EXIT.RUNTIME;
