@@ -1,0 +1,49 @@
+{
+  "name": "@fub4r/nuls",
+  "version": "0.1.0",
+  "description": "List the NuGet packages a repository references, and merge those listings across many repositories into one report",
+  "keywords": [
+    "nuget",
+    "dotnet",
+    "csproj",
+    "packages",
+    "dependencies",
+    "inventory",
+    "cli",
+    "multi-repo",
+    "repwrk"
+  ],
+  "license": "MIT",
+  "author": "Henrik Johansson (https://github.com/Fubar83)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Fubar83/nuls.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Fubar83/nuls/issues"
+  },
+  "homepage": "https://github.com/Fubar83/nuls#readme",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "nuls": "bin/nuls.js"
+  },
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node --test",
+    "prepublishOnly": "node --test"
+  }
+}
