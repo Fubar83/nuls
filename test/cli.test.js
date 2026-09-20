@@ -35,7 +35,9 @@ test('a scan writes one JSON line per reference, and nothing else to stdout', as
   assert.equal(result.code, 0);
   const rows = lines(result.stdout);
   assert.ok(rows.some((row) => row.package === 'Serilog' && row.version === '3.1.1'));
-  assert.ok(rows.every((row) => row.repo));
+  assert.ok(rows.every((row) => row.repo && row.project));
+  // kind was noise: every row already says which project it belongs to.
+  assert.ok(rows.every((row) => !('kind' in row)));
 });
 
 test('a repository with nothing to report still says which repository it is', async () => {

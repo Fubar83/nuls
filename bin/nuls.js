@@ -16,6 +16,8 @@ Options:
   --help            Show this help
 
 Reads the repository in the current directory: no SDK, no restore, no network.
+A version held in Directory.Packages.props is resolved onto the project that
+references it, so every line says what that project is on.
 
 Piped or redirected, every line is JSON and names the repository it came
 from, so a sweep across many repositories needs no glue:
@@ -68,6 +70,19 @@ function parse(argv) {
   return options;
 }
 
+/** At a terminal, under the project that references them. */
+function printGrouped(rows) {
+  let project = null;
+  for (const row of rows) {
+    if (row.project !== project) {
+      if (project !== null) process.stdout.write('\n');
+      process.stdout.write(`${row.project}\n`);
+      project = row.project;
+    }
+    process.stdout.write(`  ${row.package.padEnd(40)} ${row.version ?? '(no version found)'}\n`);
+  }
+}
+
 function run(argv) {
   const options = parse(argv);
 
@@ -84,8 +99,10 @@ function run(argv) {
   const rows = scanRepo(directory, { filter: options.filter });
 
   if (options.json || !process.stdout.isTTY) {
-    // A repository with no match still says so: once these lines are read
-    // together, silence and a failed run look identical.
+    // One line per reference rather than one per project: each line stands on
+    // its own, which is what lets a sweep concatenate without any framing.
+    // A repository with no match still says so, so that "nothing here" is
+    // data rather than silence.
     if (rows.length === 0) {
       process.stdout.write(`${JSON.stringify({ repo: path.basename(directory), package: null })}\n`);
     }
@@ -93,14 +110,11 @@ function run(argv) {
     return EXIT.SUCCESS;
   }
 
-  // At a terminal, a person is reading.
   if (rows.length === 0) {
     process.stderr.write('nuls: no package references here\n');
     return EXIT.SUCCESS;
   }
-  for (const row of rows) {
-    process.stdout.write(`${(row.version ?? '(inherited)').padEnd(16)} ${row.package}\n`);
-  }
+  printGrouped(rows);
   return EXIT.SUCCESS;
 }
 

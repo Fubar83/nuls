@@ -71,3 +71,35 @@ export const LEGACY = {
     '</packages>',
   ].join('\n'),
 };
+
+/** Two Directory.Packages.props: the nearer one is the one that counts. */
+export const NESTED = {
+  'Directory.Packages.props': [
+    '<Project>',
+    '  <ItemGroup>',
+    '    <PackageVersion Include="Serilog" Version="1.0.0" />',
+    '  </ItemGroup>',
+    '</Project>',
+  ].join('\n'),
+  'src/Directory.Packages.props': [
+    '<Project>',
+    '  <ItemGroup>',
+    '    <PackageVersion Include="Serilog" Version="2.0.0" />',
+    '  </ItemGroup>',
+    '</Project>',
+  ].join('\n'),
+  'src/Near/Near.csproj': '<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="Serilog" /></ItemGroup></Project>',
+  'far/Far.csproj': '<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="Serilog" /></ItemGroup></Project>',
+};
+
+/** The pre-CPM way of holding versions centrally: Update= in a shared file. */
+export const UPDATED = {
+  'Directory.Build.props': [
+    '<Project>',
+    '  <ItemGroup>',
+    '    <PackageReference Update="Serilog" Version="3.0.0" />',
+    '  </ItemGroup>',
+    '</Project>',
+  ].join('\n'),
+  'src/App/App.csproj': '<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="Serilog" /></ItemGroup></Project>',
+};
