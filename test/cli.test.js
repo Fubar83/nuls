@@ -9,11 +9,11 @@ after(cleanUp);
 const CLI = fileURLToPath(new URL('../bin/nuls.js', import.meta.url));
 
 /** Run the CLI itself, so exit codes and the output split are covered too. */
-function nuls(args, { cwd, stdin = '' } = {}) {
+function nuls(args, { cwd } = {}) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, ...args], {
       cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
     let stderr = '';
@@ -22,7 +22,6 @@ function nuls(args, { cwd, stdin = '' } = {}) {
     child.stdout.on('data', (chunk) => (stdout += chunk));
     child.stderr.on('data', (chunk) => (stderr += chunk));
     child.on('close', (code) => resolve({ code, stdout, stderr }));
-    child.stdin.end(stdin);
   });
 }
 
@@ -44,32 +43,30 @@ test('a repository with nothing to report still says which repository it is', as
 
   const [row] = lines((await nuls([], { cwd: repo })).stdout);
 
-  // Silence would be indistinguishable from a failed run once these are merged.
+  // Silence and a failed run look identical once these lines are read together.
   assert.equal(row.package, null);
   assert.ok(row.repo);
 });
 
-test('scans pipe into a merge', async () => {
+test('scans from several repositories concatenate into one stream', async () => {
   const one = await writeTree(await tempDir(), CLASSIC);
   const two = await writeTree(await tempDir(), CENTRAL);
 
-  const scans = [await nuls([], { cwd: one }), await nuls([], { cwd: two })];
-  const merged = await nuls(['--merge', '--json'], { stdin: scans.map((s) => s.stdout).join('') });
+  const stream = (await nuls([], { cwd: one })).stdout + (await nuls([], { cwd: two })).stdout;
 
-  const report = JSON.parse(merged.stdout);
-  const serilog = report.find((entry) => entry.package === 'Serilog');
-  assert.equal(merged.code, 0);
-  assert.equal(serilog.spread, 2);
+  // Whatever reads this needs no framing: every line stands on its own.
+  const rows = lines(stream);
+  assert.equal(new Set(rows.map((row) => row.repo)).size, 2);
+  assert.ok(rows.every((row) => row.repo && 'package' in row));
 });
 
-test('a line that is not JSON is skipped rather than fatal', async () => {
-  const stdin = '==> some stray header\n{"repo":"api","package":"Serilog","version":"3.1.1"}\n';
+test('a filter narrows the listing', async () => {
+  const repo = await writeTree(await tempDir(), CENTRAL);
 
-  const result = await nuls(['--merge'], { stdin });
+  const rows = lines((await nuls(['--filter', 'MyCompany.*'], { cwd: repo })).stdout);
 
-  assert.equal(result.code, 0);
-  assert.match(result.stdout, /Serilog/);
-  assert.match(result.stderr, /not JSON/);
+  assert.ok(rows.length > 0);
+  assert.ok(rows.every((row) => row.package.startsWith('MyCompany.')));
 });
 
 test('an empty filter is an error, not everything', async () => {
@@ -80,8 +77,8 @@ test('an empty filter is an error, not everything', async () => {
 });
 
 test('an unknown option is an error', async () => {
-  const result = await nuls(['--merg']);
+  const result = await nuls(['--merge']);
 
   assert.equal(result.code, 2);
-  assert.match(result.stderr, /unknown option '--merg'/);
+  assert.match(result.stderr, /unknown option '--merge'/);
 });
