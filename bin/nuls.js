@@ -16,8 +16,8 @@ const { version } = JSON.parse(readFileSync(new URL('../package.json', import.me
 const USAGE = `nuls — list the NuGet packages a repository references
 
 Usage:
-  nuls [--filter <glob>] [--json] [--files]
-  nuls --merge [--by package|project] [--filter <glob>] [--json]
+  nuls [-f|--filter <glob>] [-j|--json] [--files]
+  nuls -m|--merge [-b|--by package|project] [-f|--filter <glob>] [-j|--json]
 
 Options:
   -f, --filter <glob>   Only packages whose name matches, e.g. "MyCompany.*"
