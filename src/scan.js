@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { globToRegExp } from './glob.js';
 import { referencesIn } from './msbuild.js';
@@ -15,7 +16,12 @@ import { referencesIn } from './msbuild.js';
  * `dotnet list package --include-transitive --format json`.
  */
 
-/** Never worth walking into. */
+/**
+ * Never worth walking into — the floor for a directory git knows nothing
+ * about. Inside a repository these are not needed: a repository that ignores
+ * its build output has already said so, and one that tracks a directory called
+ * `packages` meant it.
+ */
 const SKIP = new Set(['bin', 'obj', 'node_modules', '.git', '.vs', 'packages', 'TestResults']);
 
 const PROJECT = /\.(cs|fs|vb)proj$/i;
@@ -27,20 +33,69 @@ const VERSION_SOURCE = /^directory\.(packages\.props|build\.props|build\.targets
 const isInteresting = (name) =>
   PROJECT.test(name) || PACKAGES_CONFIG.test(name) || VERSION_SOURCE.test(name);
 
+/**
+ * The paths git considers part of the repository: tracked files, plus
+ * untracked ones that are not ignored.
+ *
+ * Asking git rather than walking is what makes a repository's own ignore rules
+ * apply. A project under a gitignored path is not something the repository
+ * declares — it is build output, a restored package, or somebody's scratch
+ * copy — and reporting its references as the repository's own is wrong. Which
+ * paths those are is the repository's statement to make, not this tool's.
+ *
+ * It is also much the faster of the two on a large repository, because an
+ * ignored directory is never descended into at all rather than walked and
+ * discarded.
+ *
+ * Returns null when this is not a repository, or git is not installed. Both
+ * are ordinary — nuls reads a directory, and a directory need not be a clone —
+ * and the filesystem walk answers for them.
+ */
+function gitPaths(directory) {
+  const listed = spawnSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], {
+    cwd: directory,
+    encoding: 'utf8',
+    // A very large repository's file list; the default 1MB truncates silently.
+    maxBuffer: 256 * 1024 * 1024,
+  });
+
+  if (listed.error || listed.status !== 0) return null;
+  return listed.stdout.split('\0').filter(Boolean);
+}
+
 /** Every file worth reading under `directory`, walked once. */
-export function* projectFiles(directory) {
+function* walk(directory) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const full = path.join(directory, entry.name);
     if (entry.isDirectory() || entry.isSymbolicLink()) {
       if (SKIP.has(entry.name)) continue;
       try {
-        yield* projectFiles(full);
+        yield* walk(full);
       } catch {
         // A link pointing nowhere, or a directory we may not read.
       }
     } else if (isInteresting(entry.name)) {
       yield full;
     }
+  }
+}
+
+/** Every file worth reading under `directory`, as the repository sees them. */
+export function* projectFiles(directory) {
+  const listed = gitPaths(directory);
+  if (listed === null) {
+    yield* walk(directory);
+    return;
+  }
+
+  for (const file of listed) {
+    // git spells every path with forward slashes, on every platform.
+    if (!isInteresting(file.slice(file.lastIndexOf('/') + 1))) continue;
+
+    const full = path.join(directory, file);
+    // --cached lists a tracked file that has been deleted from the working
+    // tree. There is nothing there to read.
+    if (existsSync(full)) yield full;
   }
 }
 

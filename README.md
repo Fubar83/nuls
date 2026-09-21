@@ -141,7 +141,27 @@ Skips MSBuild entirely and reads the project files. Faster, and works without a 
 | `Directory.Build.props` / `.targets` | `<PackageReference Update="X" Version="1.2.3" />` |
 | `packages.config` | `<package id="X" version="1.2.3" />` |
 
-`bin`, `obj`, `node_modules` and `.vs` are never walked into, and a commented-out reference is not a reference.
+A commented-out reference is not a reference.
+
+### What counts as part of the repository
+
+Inside a git repository, the files scanned are the ones **git** considers part of it: everything tracked, plus everything untracked that no ignore rule covers. So a project under an ignored path is never read — because the repository said to ignore it, not because `nuls` has opinions about directory names.
+
+That matters for the directories a fixed list would miss. `artifacts/`, `publish/`, `[Bb]uild/`, `_output/` and whatever else a repository ignores are all build output, and a project file found in one declares nothing:
+
+```console
+$ cat .gitignore
+artifacts/
+publish/
+
+$ nuls --files | grep GhostPackage      # nothing: both are ignored paths
+```
+
+It cuts the other way too. A repository that **tracks** a directory called `packages` meant it — a monorepo laying its projects out as `packages/Core/Core.csproj` is now scanned properly, where a fixed skip list used to silently drop every one of them.
+
+Untracked files count, so a project you have just created and not yet committed is included. A tracked file deleted from the working tree is not: there is nothing there to read.
+
+Outside a repository — `nuls` reads a directory, and a directory need not be a clone — there are no ignore rules to apply, so a fixed floor is used instead: `bin`, `obj`, `node_modules`, `.git`, `.vs`, `packages` and `TestResults` are not walked into. A `.gitignore` sitting in a directory that is not a repository is not read; applying ignore rules is git's job.
 
 ## What it does not tell you
 
