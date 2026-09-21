@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { globToRegExp } from './glob.js';
 import { referencesIn } from './msbuild.js';
@@ -15,8 +16,27 @@ import { referencesIn } from './msbuild.js';
  * `dotnet list package --include-transitive --format json`.
  */
 
-/** Never worth walking into. */
+/**
+ * Never worth reading, whatever the repository says about them.
+ *
+ * These hold build output and restored packages. A project file under one
+ * declares nothing — it is generated, or a copy of something declared
+ * elsewhere — so it is skipped whether or not the repository ignores it. A
+ * repository that has forgotten to ignore its own build output, or that has
+ * committed it deliberately, should not report packages nothing references.
+ *
+ * This applies on both paths, so a scan answers the same either way. It is the
+ * floor; ignore rules are applied on top of it.
+ */
 const SKIP = new Set(['bin', 'obj', 'node_modules', '.git', '.vs', 'packages', 'TestResults']);
+
+/** Whether any directory leading to `file` is one never worth reading. */
+function underSkipped(file) {
+  // git spells every path with forward slashes, on every platform. The last
+  // segment is the file itself, and SKIP names directories.
+  const segments = file.split('/');
+  return segments.slice(0, -1).some((segment) => SKIP.has(segment));
+}
 
 const PROJECT = /\.(cs|fs|vb)proj$/i;
 const PACKAGES_CONFIG = /^packages\.config$/i;
@@ -27,20 +47,74 @@ const VERSION_SOURCE = /^directory\.(packages\.props|build\.props|build\.targets
 const isInteresting = (name) =>
   PROJECT.test(name) || PACKAGES_CONFIG.test(name) || VERSION_SOURCE.test(name);
 
+/**
+ * The paths git considers part of the repository: tracked files, plus
+ * untracked ones that are not ignored.
+ *
+ * Asking git rather than walking is what makes a repository's own ignore rules
+ * apply. A project under a gitignored path is not something the repository
+ * declares — it is build output, a restored package, or somebody's scratch
+ * copy — and reporting its references as the repository's own is wrong. The
+ * fixed skip list cannot know those paths; only the repository does.
+ *
+ * It narrows what is read, never widens it: SKIP still applies to whatever git
+ * lists, so the two together are stricter than either alone.
+ *
+ * It is also much the faster of the two on a large repository, because an
+ * ignored directory is never descended into at all rather than walked and
+ * discarded.
+ *
+ * Returns null when this is not a repository, or git is not installed. Both
+ * are ordinary — nuls reads a directory, and a directory need not be a clone —
+ * and the filesystem walk answers for them.
+ */
+function gitPaths(directory) {
+  const listed = spawnSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], {
+    cwd: directory,
+    encoding: 'utf8',
+    // A very large repository's file list; the default 1MB truncates silently.
+    maxBuffer: 256 * 1024 * 1024,
+  });
+
+  if (listed.error || listed.status !== 0) return null;
+  return listed.stdout.split('\0').filter(Boolean);
+}
+
 /** Every file worth reading under `directory`, walked once. */
-export function* projectFiles(directory) {
+function* walk(directory) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const full = path.join(directory, entry.name);
     if (entry.isDirectory() || entry.isSymbolicLink()) {
       if (SKIP.has(entry.name)) continue;
       try {
-        yield* projectFiles(full);
+        yield* walk(full);
       } catch {
         // A link pointing nowhere, or a directory we may not read.
       }
     } else if (isInteresting(entry.name)) {
       yield full;
     }
+  }
+}
+
+/** Every file worth reading under `directory`, as the repository sees them. */
+export function* projectFiles(directory) {
+  const listed = gitPaths(directory);
+  if (listed === null) {
+    yield* walk(directory);
+    return;
+  }
+
+  for (const file of listed) {
+    // Both filters apply: the repository's ignore rules decided what git
+    // listed, and the fixed floor decides the rest.
+    if (underSkipped(file)) continue;
+    if (!isInteresting(file.slice(file.lastIndexOf('/') + 1))) continue;
+
+    const full = path.join(directory, file);
+    // --cached lists a tracked file that has been deleted from the working
+    // tree. There is nothing there to read.
+    if (existsSync(full)) yield full;
   }
 }
 

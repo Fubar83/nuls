@@ -127,3 +127,59 @@ test('--by only takes the two views it has', async () => {
   assert.equal(result.code, 2);
   assert.match(result.stderr, /--by takes/);
 });
+
+// Short forms
+
+test('the one-letter forms mean the same as the long ones', async () => {
+  const repo = await writeTree(await tempDir(), CLASSIC);
+
+  const short = await nuls(['-f', 'Seri*', '-j'], { cwd: repo });
+  const long = await nuls(['--filter', 'Seri*', '--json'], { cwd: repo });
+
+  assert.equal(short.code, 0);
+  assert.equal(short.stdout, long.stdout);
+  assert.match(short.stdout, /Serilog/);
+  assert.ok(!short.stdout.includes('Polly'), 'the filter applied');
+});
+
+test('-m and -b group a merged report the way the long forms do', async () => {
+  const listing = [
+    JSON.stringify({ repo: 'a', project: 'A.csproj', package: 'Serilog', version: '3.1.1' }),
+    JSON.stringify({ repo: 'b', project: 'B.csproj', package: 'Serilog', version: '4.0.0' }),
+  ].join('\n');
+
+  const short = await nuls(['-m', '-b', 'project'], { stdin: listing });
+  const long = await nuls(['--merge', '--by', 'project'], { stdin: listing });
+
+  assert.equal(short.code, 0);
+  assert.equal(short.stdout, long.stdout);
+});
+
+// -f is --filter's, and a wrong guess between the two would quietly change
+// which engine answered rather than failing.
+test('--files has no one-letter form', async () => {
+  const repo = await writeTree(await tempDir(), CLASSIC);
+  const result = await nuls(['-F'], { cwd: repo });
+
+  assert.equal(result.code, 2);
+  assert.match(result.stderr, /unknown option '-F'/);
+});
+
+test('an error names the form that was actually typed', async () => {
+  const bare = await nuls(['-f']);
+  assert.equal(bare.code, 2);
+  assert.match(bare.stderr, /-f requires a glob/);
+
+  const by = await nuls(['-b', 'nonsense']);
+  assert.equal(by.code, 2);
+  assert.match(by.stderr, /-b takes 'package' or 'project'/);
+});
+
+test('an inline value works with a one-letter form too', async () => {
+  const repo = await writeTree(await tempDir(), CLASSIC);
+  const result = await nuls(['-f=Seri*', '--json'], { cwd: repo });
+
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /Serilog/);
+  assert.ok(!result.stdout.includes('Polly'));
+});

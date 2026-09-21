@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -133,3 +134,30 @@ export const SHARED_TESTS = {
     '</Project>',
   ].join('\n'),
 };
+
+/**
+ * A temp directory that is a git repository, with `files` written into it.
+ *
+ * Nothing is committed unless asked: an untracked file that no rule ignores is
+ * as much a part of the repository as a committed one, and a scan should see
+ * the same thing either way.
+ */
+export async function gitTree(files, { commit = false } = {}) {
+  const root = await writeTree(await tempDir(), files);
+  const git = (...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+
+  git('init', '-q');
+  if (commit) {
+    git('add', '-A');
+    // Identity on the command line, so the machine running the tests needs none.
+    git('-c', 'user.email=t@example.com', '-c', 'user.name=Test', 'commit', '-qm', 'fixture');
+  }
+
+  return root;
+}
+
+/** Whether git is usable here at all; without it there is nothing to test. */
+export function gitAvailable() {
+  const probe = spawnSync('git', ['--version'], { encoding: 'utf8' });
+  return !probe.error && probe.status === 0;
+}

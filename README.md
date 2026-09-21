@@ -55,6 +55,14 @@ nuls --merge [--by package|project] [--filter <glob>] [--json]
 
 `nuls` on its own reads the repository in the current directory. `nuls --merge` reads those listings back on standard input and reports across all of them.
 
+Most options have a one-letter form — `-f` for `--filter`, `-j` for `--json`, `-m` for `--merge`, `-b` for `--by`:
+
+```bash
+repwrk foreach --parallel nuls | nuls -m -b project -f "MyCompany.*"
+```
+
+`--files` deliberately has none. `-f` is `--filter`'s, the two are easy to reach for by the same instinct, and a wrong guess between them would quietly change which engine answered rather than failing — a report that is subtly different is worse than one that did not run.
+
 ### `--merge`
 
 **By package** — the default, and the reason to merge at all: which versions of something are in play, and who is on each.
@@ -141,7 +149,29 @@ Skips MSBuild entirely and reads the project files. Faster, and works without a 
 | `Directory.Build.props` / `.targets` | `<PackageReference Update="X" Version="1.2.3" />` |
 | `packages.config` | `<package id="X" version="1.2.3" />` |
 
-`bin`, `obj`, `node_modules` and `.vs` are never walked into, and a commented-out reference is not a reference.
+A commented-out reference is not a reference.
+
+### What counts as part of the repository
+
+Two filters decide what is read, and a file has to pass both.
+
+**The floor.** `bin`, `obj`, `node_modules`, `.git`, `.vs`, `packages` and `TestResults` are never read, wherever they appear and whatever the repository says about them. They hold build output and restored packages, and a project file under one declares nothing — it is generated, or a copy of something declared elsewhere. Committing it deliberately does not make it a declaration.
+
+**The repository's own ignore rules.** Inside a git repository, the files scanned are the ones **git** considers part of it: everything tracked, plus everything untracked that no ignore rule covers.
+
+That second one matters for the directories a fixed list cannot know about. `artifacts/`, `publish/`, `[Bb]uild/`, `_output/` — whatever a given repository calls its build output — are ignored because that repository said so:
+
+```console
+$ cat .gitignore
+artifacts/
+publish/
+
+$ nuls --files | grep GhostPackage      # nothing: both are ignored paths
+```
+
+Untracked files count, so a project you have just created and not yet committed is included. A tracked file deleted from the working tree is not: there is nothing there to read.
+
+Outside a repository — `nuls` reads a directory, and a directory need not be a clone — only the floor applies. A `.gitignore` sitting in a directory that is not a repository is not read; applying ignore rules is git's job, not a job for a second implementation of it.
 
 ## What it does not tell you
 
