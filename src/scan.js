@@ -17,12 +17,26 @@ import { referencesIn } from './msbuild.js';
  */
 
 /**
- * Never worth walking into — the floor for a directory git knows nothing
- * about. Inside a repository these are not needed: a repository that ignores
- * its build output has already said so, and one that tracks a directory called
- * `packages` meant it.
+ * Never worth reading, whatever the repository says about them.
+ *
+ * These hold build output and restored packages. A project file under one
+ * declares nothing — it is generated, or a copy of something declared
+ * elsewhere — so it is skipped whether or not the repository ignores it. A
+ * repository that has forgotten to ignore its own build output, or that has
+ * committed it deliberately, should not report packages nothing references.
+ *
+ * This applies on both paths, so a scan answers the same either way. It is the
+ * floor; ignore rules are applied on top of it.
  */
 const SKIP = new Set(['bin', 'obj', 'node_modules', '.git', '.vs', 'packages', 'TestResults']);
+
+/** Whether any directory leading to `file` is one never worth reading. */
+function underSkipped(file) {
+  // git spells every path with forward slashes, on every platform. The last
+  // segment is the file itself, and SKIP names directories.
+  const segments = file.split('/');
+  return segments.slice(0, -1).some((segment) => SKIP.has(segment));
+}
 
 const PROJECT = /\.(cs|fs|vb)proj$/i;
 const PACKAGES_CONFIG = /^packages\.config$/i;
@@ -40,8 +54,11 @@ const isInteresting = (name) =>
  * Asking git rather than walking is what makes a repository's own ignore rules
  * apply. A project under a gitignored path is not something the repository
  * declares — it is build output, a restored package, or somebody's scratch
- * copy — and reporting its references as the repository's own is wrong. Which
- * paths those are is the repository's statement to make, not this tool's.
+ * copy — and reporting its references as the repository's own is wrong. The
+ * fixed skip list cannot know those paths; only the repository does.
+ *
+ * It narrows what is read, never widens it: SKIP still applies to whatever git
+ * lists, so the two together are stricter than either alone.
  *
  * It is also much the faster of the two on a large repository, because an
  * ignored directory is never descended into at all rather than walked and
@@ -89,7 +106,9 @@ export function* projectFiles(directory) {
   }
 
   for (const file of listed) {
-    // git spells every path with forward slashes, on every platform.
+    // Both filters apply: the repository's ignore rules decided what git
+    // listed, and the fixed floor decides the rest.
+    if (underSkipped(file)) continue;
     if (!isInteresting(file.slice(file.lastIndexOf('/') + 1))) continue;
 
     const full = path.join(directory, file);

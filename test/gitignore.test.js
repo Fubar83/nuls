@@ -40,26 +40,45 @@ test('an ignored directory this tool has no opinion about is still ignored', { s
   assert.deepEqual(await packages(repo), ['Serilog']);
 });
 
-// The other half of deferring to the repository: a directory on this tool's
-// skip list, which the repository tracks and therefore meant.
-test('a tracked directory named packages is scanned, not skipped', { skip }, async () => {
+// The fixed skip list is a floor, not a fallback: it applies to what git
+// lists too, so tracking build output does not put it back into a report.
+test('a directory on the skip list is skipped even when tracked', { skip }, async () => {
   const repo = await gitTree(
     {
-      'packages/Core/Core.csproj': project('Core', 'Serilog'),
-      'packages/Web/Web.csproj': project('Web', 'Polly'),
+      'src/Api/Api.csproj': project('Api', 'Serilog'),
+      'packages/Restored/Restored.csproj': project('Restored', 'GhostFromPackages'),
+      'src/Api/obj/project.assets.csproj': project('Assets', 'GhostFromObj'),
     },
     { commit: true },
   );
 
-  assert.deepEqual(await packages(repo), ['Polly', 'Serilog']);
+  assert.deepEqual(await packages(repo), ['Serilog']);
 });
 
-test('build output is skipped because the repository ignores it', { skip }, async () => {
+test('build output is skipped when the repository ignores it as well', { skip }, async () => {
   const repo = await gitTree({
     '.gitignore': 'bin/\nobj/\n',
     'Api.csproj': project('Api', 'Serilog'),
     'obj/project.assets.csproj': project('Assets', 'Ghost'),
   });
+
+  assert.deepEqual(await packages(repo), ['Serilog']);
+});
+
+// The two filters are independent, and a scan is the stricter of them: the
+// repository rules out what only it knows, the floor rules out the rest.
+test('the two filters narrow together, neither widening the other', { skip }, async () => {
+  const repo = await gitTree(
+    {
+      '.gitignore': 'artifacts/\n',
+      'Api.csproj': project('Api', 'Serilog'),
+      // Ignored, and not on the skip list: only git knows to leave it out.
+      'artifacts/Built/Built.csproj': project('Built', 'GhostFromIgnored'),
+      // Tracked, and on the skip list: only the floor knows to leave it out.
+      'obj/project.assets.csproj': project('Assets', 'GhostFromSkipped'),
+    },
+    { commit: true },
+  );
 
   assert.deepEqual(await packages(repo), ['Serilog']);
 });
