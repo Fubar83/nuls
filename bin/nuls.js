@@ -7,6 +7,7 @@ import {
   formatByPackage,
   formatByProject,
 } from '../src/merge.js';
+import { paletteFor } from '../src/color.js';
 import { scanRepo } from '../src/scan.js';
 
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
@@ -43,6 +44,10 @@ repwrk writes its own headers to standard error, so only the packages reach
 the pipe.`;
 
 const EXIT = { SUCCESS: 0, RUNTIME: 1, USAGE: 2 };
+
+/** Data goes to stdout and commentary to stderr, each coloured on its own terms. */
+const ink = paletteFor(process.stdout);
+const note = paletteFor(process.stderr);
 
 function usageError(message) {
   const error = new Error(message);
@@ -145,7 +150,7 @@ function parseLines(input) {
   }
 
   if (ignored > 0) {
-    process.stderr.write(`nuls: ignored ${ignored} line(s) that were not JSON\n`);
+    process.stderr.write(`${note.yellow(`nuls: ignored ${ignored} line(s) that were not JSON`)}\n`);
   }
 
   return rows;
@@ -171,10 +176,17 @@ function printGrouped(rows) {
   for (const row of rows) {
     if (row.project !== project) {
       if (project !== null) process.stdout.write('\n');
-      process.stdout.write(`${row.project}\n`);
+      process.stdout.write(`${ink.grey(row.project)}\n`);
       project = row.project;
     }
-    process.stdout.write(`  ${row.package.padEnd(40)} ${row.version ?? '(no version found)'}\n`);
+    // Dot leaders rather than spaces: these lists get long, and the eye needs
+    // something to follow from a package name to the version beside it.
+    const dots = '.'.repeat(Math.max(2, 41 - row.package.length));
+    const version = row.version ?? '(no version found)';
+    process.stdout.write(
+      `  ${ink.bold(row.package)} ${ink.dim(dots)} ` +
+        `${row.version === null ? ink.yellow(version) : version}\n`,
+    );
   }
 }
 
@@ -215,7 +227,7 @@ async function run(argv) {
   }
 
   if (rows.length === 0) {
-    process.stderr.write('nuls: no package references here\n');
+    process.stderr.write(`${note.dim('nuls: no package references here')}\n`);
     return EXIT.SUCCESS;
   }
   printGrouped(rows);
@@ -225,7 +237,7 @@ async function run(argv) {
 // Piping into `head` and friends closes stdout early; that is not an error.
 process.stdout.on('error', (error) => {
   if (error.code === 'EPIPE') process.exit(process.exitCode ?? EXIT.SUCCESS);
-  process.stderr.write(`error: ${error.message}\n`);
+  process.stderr.write(`${note.red(`error: ${error.message}`)}\n`);
   process.exit(EXIT.RUNTIME);
 });
 
