@@ -5,12 +5,12 @@ List the NuGet packages a repository references, grouped by the project that ref
 ```console
 $ nuls
 src/Api/Api.csproj
-  Serilog                                  3.1.1
-  Polly                                    7.2.4
+  Serilog .................................. 3.1.1
+  Polly .................................... 7.2.4
 
 src/Web/Web.csproj
-  Serilog                                  4.2.0
-  MyCompany.Core                           2.3.0
+  Serilog .................................. 4.2.0
+  MyCompany.Core ........................... 2.3.0
 ```
 
 A version held in `Directory.Packages.props` is resolved onto the project that references it, so a line says what that project is actually on — not what one file happens to say.
@@ -190,6 +190,12 @@ dotnet list package --include-transitive --format json
 ```
 
 That reports what NuGet actually resolved — and needs a successful `dotnet restore` first, in every repository, which across forty clones is the slow and fragile part. nuls asks MSBuild to *evaluate* rather than restore, which is why it answers in seconds and still answers in a repository that will not restore.
+
+## Colour
+
+Colour is decided per stream, not per process. `nuls` puts data on stdout and commentary on stderr, and the two are redirected independently: `nuls > packages.ndjson` still wants a readable note on the terminal, and escape codes in the file would be corruption.
+
+A stream that is not a terminal never gets colour, so a pipe receives exactly the bytes it would have without any of this — the same test the NDJSON switch already makes. `NO_COLOR` turns it off, `FORCE_COLOR` turns it on where nothing can be detected, and `FORCE_COLOR=0` is the explicit off switch.
 
 ## Exit codes
 

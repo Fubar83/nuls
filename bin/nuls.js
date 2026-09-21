@@ -7,15 +7,17 @@ import {
   formatByPackage,
   formatByProject,
 } from '../src/merge.js';
+import { paletteFor } from '../src/color.js';
 import { scanRepo } from '../src/scan.js';
+import { tabulate } from '../src/table.js';
 
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 const USAGE = `nuls — list the NuGet packages a repository references
 
 Usage:
-  nuls [--filter <glob>] [--json] [--files]
-  nuls --merge [--by package|project] [--filter <glob>] [--json]
+  nuls [-f|--filter <glob>] [-j|--json] [--files]
+  nuls -m|--merge [-b|--by package|project] [-f|--filter <glob>] [-j|--json]
 
 Options:
   -f, --filter <glob>   Only packages whose name matches, e.g. "MyCompany.*"
@@ -43,6 +45,11 @@ repwrk writes its own headers to standard error, so only the packages reach
 the pipe.`;
 
 const EXIT = { SUCCESS: 0, RUNTIME: 1, USAGE: 2 };
+
+/** Data goes to stdout and commentary to stderr, each coloured on its own terms. */
+const NO_VERSION_FOUND = '(no version found)';
+const ink = paletteFor(process.stdout);
+const note = paletteFor(process.stderr);
 
 function usageError(message) {
   const error = new Error(message);
@@ -145,7 +152,7 @@ function parseLines(input) {
   }
 
   if (ignored > 0) {
-    process.stderr.write(`nuls: ignored ${ignored} line(s) that were not JSON\n`);
+    process.stderr.write(`${note.yellow(`nuls: ignored ${ignored} line(s) that were not JSON`)}\n`);
   }
 
   return rows;
@@ -165,17 +172,23 @@ async function merge(options) {
   return EXIT.SUCCESS;
 }
 
-/** At a terminal, under the project that references them. */
+/**
+ * At a terminal, under the project that references them.
+ *
+ * The same table nuup prints, so the two line up over one repository: only
+ * the version it would move to is missing here, because nuls does not have
+ * one to offer.
+ */
 function printGrouped(rows) {
-  let project = null;
-  for (const row of rows) {
-    if (row.project !== project) {
-      if (project !== null) process.stdout.write('\n');
-      process.stdout.write(`${row.project}\n`);
-      project = row.project;
-    }
-    process.stdout.write(`  ${row.package.padEnd(40)} ${row.version ?? '(no version found)'}\n`);
-  }
+  const table = rows.map((row) => ({
+    group: row.project,
+    name: row.package,
+    version: row.version ?? NO_VERSION_FOUND,
+    warn: row.version === null,
+  }));
+
+  for (const line of tabulate(table, ink)) process.stdout.write(`${line}
+`);
 }
 
 async function run(argv) {
@@ -215,7 +228,7 @@ async function run(argv) {
   }
 
   if (rows.length === 0) {
-    process.stderr.write('nuls: no package references here\n');
+    process.stderr.write(`${note.dim('nuls: no package references here')}\n`);
     return EXIT.SUCCESS;
   }
   printGrouped(rows);
@@ -225,7 +238,7 @@ async function run(argv) {
 // Piping into `head` and friends closes stdout early; that is not an error.
 process.stdout.on('error', (error) => {
   if (error.code === 'EPIPE') process.exit(process.exitCode ?? EXIT.SUCCESS);
-  process.stderr.write(`error: ${error.message}\n`);
+  process.stderr.write(`${note.red(`error: ${error.message}`)}\n`);
   process.exit(EXIT.RUNTIME);
 });
 
