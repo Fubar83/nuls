@@ -1,6 +1,6 @@
 {
   "name": "@fub4r/nuls",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "List the NuGet packages a repository references, and merge those listings across many repositories into one report",
   "keywords": [
     "nuget",
@@ -29,10 +29,6 @@
   },
   "bin": {
     "nuls": "bin/nuls.js"
-  },
-  "main": "src/index.js",
-  "exports": {
-    ".": "./src/index.js"
   },
   "files": [
     "bin",
