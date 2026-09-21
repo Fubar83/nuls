@@ -55,6 +55,14 @@ nuls --merge [--by package|project] [--filter <glob>] [--json]
 
 `nuls` on its own reads the repository in the current directory. `nuls --merge` reads those listings back on standard input and reports across all of them.
 
+Most options have a one-letter form — `-f` for `--filter`, `-j` for `--json`, `-m` for `--merge`, `-b` for `--by`:
+
+```bash
+repwrk foreach --parallel nuls | nuls -m -b project -f "MyCompany.*"
+```
+
+`--files` deliberately has none. `-f` is `--filter`'s, the two are easy to reach for by the same instinct, and a wrong guess between them would quietly change which engine answered rather than failing — a report that is subtly different is worse than one that did not run.
+
 ### `--merge`
 
 **By package** — the default, and the reason to merge at all: which versions of something are in play, and who is on each.

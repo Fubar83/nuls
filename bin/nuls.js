@@ -18,16 +18,17 @@ Usage:
   nuls --merge [--by package|project] [--filter <glob>] [--json]
 
 Options:
-  --filter <glob>   Only packages whose name matches, e.g. "MyCompany.*"
-  --json            Machine-readable output
-  --files           Read the project files instead of asking MSBuild: faster,
-                    but a version written as a property stays a property
-  --merge           Read listings on standard input and report across them
-  --by <view>       What a merged report is grouped by:
-                      package  which versions are in use, and who is on each
-                               (the default)
-                      project  repository, then project, then its packages
-  --help            Show this help
+  -f, --filter <glob>   Only packages whose name matches, e.g. "MyCompany.*"
+  -j, --json            Machine-readable output
+      --files           Read the project files instead of asking MSBuild:
+                        faster, but a version written as a property stays a
+                        property. No one-letter form: -f is --filter's.
+  -m, --merge           Read listings on standard input and report across them
+  -b, --by <view>       What a merged report is grouped by:
+                          package  which versions are in use, and who is on
+                                   each (the default)
+                          project  repository, then project, then its packages
+  -h, --help            Show this help
 
 Reads the repository in the current directory: no SDK, no restore, no network.
 A version held in Directory.Packages.props is resolved onto the project that
@@ -49,6 +50,16 @@ function usageError(message) {
   return error;
 }
 
+/**
+ * One-letter forms.
+ *
+ * `--files` deliberately has none: -f is --filter's, and the two are easy to
+ * reach for by the same instinct. A wrong guess between them would quietly
+ * change which engine answered rather than failing, and a report that is
+ * subtly different is worse than one that did not run.
+ */
+const SHORT = { '-f': '--filter', '-j': '--json', '-m': '--merge', '-b': '--by' };
+
 function parse(argv) {
   const options = {
     filter: null,
@@ -61,7 +72,12 @@ function parse(argv) {
   };
 
   for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
+    // A short form stands in for its long one, but any complaint names the
+    // spelling that was actually typed.
+    const typed = argv[index].includes('=')
+      ? argv[index].slice(0, argv[index].indexOf('='))
+      : argv[index];
+    const token = SHORT[typed] ? SHORT[typed] + argv[index].slice(typed.length) : argv[index];
 
     if (token === '--help' || token === '-h') {
       options.help = true;
@@ -76,7 +92,7 @@ function parse(argv) {
     } else if (token === '--by') {
       const value = argv[index + 1];
       if (value !== 'package' && value !== 'project') {
-        throw usageError("--by takes 'package' or 'project'");
+        throw usageError(`${typed} takes 'package' or 'project'`);
       }
       options.by = value;
       index += 1;
@@ -85,13 +101,13 @@ function parse(argv) {
       // An empty filter would read as "no filter" and widen the listing to
       // everything, which is the opposite of what was asked for.
       if (value === undefined || value === '' || value.startsWith('-')) {
-        throw usageError('--filter requires a glob');
+        throw usageError(`${typed} requires a glob`);
       }
       options.filter = value;
       index += 1;
     } else if (token.startsWith('--filter=')) {
       const value = token.slice('--filter='.length);
-      if (value === '') throw usageError('--filter requires a glob');
+      if (value === '') throw usageError(`${typed} requires a glob`);
       options.filter = value;
     } else {
       throw usageError(
