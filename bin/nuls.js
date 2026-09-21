@@ -9,6 +9,7 @@ import {
 } from '../src/merge.js';
 import { paletteFor } from '../src/color.js';
 import { scanRepo } from '../src/scan.js';
+import { tabulate } from '../src/table.js';
 
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
@@ -46,6 +47,7 @@ the pipe.`;
 const EXIT = { SUCCESS: 0, RUNTIME: 1, USAGE: 2 };
 
 /** Data goes to stdout and commentary to stderr, each coloured on its own terms. */
+const NO_VERSION_FOUND = '(no version found)';
 const ink = paletteFor(process.stdout);
 const note = paletteFor(process.stderr);
 
@@ -170,24 +172,23 @@ async function merge(options) {
   return EXIT.SUCCESS;
 }
 
-/** At a terminal, under the project that references them. */
+/**
+ * At a terminal, under the project that references them.
+ *
+ * The same table nuup prints, so the two line up over one repository: only
+ * the version it would move to is missing here, because nuls does not have
+ * one to offer.
+ */
 function printGrouped(rows) {
-  let project = null;
-  for (const row of rows) {
-    if (row.project !== project) {
-      if (project !== null) process.stdout.write('\n');
-      process.stdout.write(`${ink.grey(row.project)}\n`);
-      project = row.project;
-    }
-    // Dot leaders rather than spaces: these lists get long, and the eye needs
-    // something to follow from a package name to the version beside it.
-    const dots = '.'.repeat(Math.max(2, 41 - row.package.length));
-    const version = row.version ?? '(no version found)';
-    process.stdout.write(
-      `  ${ink.bold(row.package)} ${ink.dim(dots)} ` +
-        `${row.version === null ? ink.yellow(version) : version}\n`,
-    );
-  }
+  const table = rows.map((row) => ({
+    group: row.project,
+    name: row.package,
+    version: row.version ?? NO_VERSION_FOUND,
+    warn: row.version === null,
+  }));
+
+  for (const line of tabulate(table, ink)) process.stdout.write(`${line}
+`);
 }
 
 async function run(argv) {
