@@ -76,7 +76,7 @@ test('an empty filter is an error, not everything', async () => {
   const result = await nuls(['--filter', '']);
 
   assert.equal(result.code, 2);
-  assert.match(result.stderr, /--filter requires a glob/);
+  assert.match(result.stderr, /--filter requires a value/);
 });
 
 test('an unknown option is an error', async () => {
@@ -168,7 +168,7 @@ test('--files has no one-letter form', async () => {
 test('an error names the form that was actually typed', async () => {
   const bare = await nuls(['-f']);
   assert.equal(bare.code, 2);
-  assert.match(bare.stderr, /-f requires a glob/);
+  assert.match(bare.stderr, /-f requires a value/);
 
   const by = await nuls(['-b', 'nonsense']);
   assert.equal(by.code, 2);
@@ -182,4 +182,23 @@ test('an inline value works with a one-letter form too', async () => {
   assert.equal(result.code, 0);
   assert.match(result.stdout, /Serilog/);
   assert.ok(!result.stdout.includes('Polly'));
+});
+
+// The other two tools print the usage block after a usage error; nuls used to
+// print the complaint alone.
+test('a usage error is followed by the usage, as in the sibling tools', async () => {
+  const result = await nuls(['--nope']);
+
+  assert.equal(result.code, 2);
+  assert.match(result.stderr, /unknown option '--nope'/);
+  assert.match(result.stderr, /Usage:/, 'the usage block follows the complaint');
+  assert.match(result.stderr, /nuls \[-f\|--filter <glob>\]/);
+});
+
+test('a runtime failure names the part that failed', async () => {
+  const { RuntimeError, formatError } = await import('../src/errors.js');
+  assert.equal(
+    formatError(new RuntimeError('broken pipe', { component: 'stdin' })),
+    'error [stdin]: broken pipe',
+  );
 });
