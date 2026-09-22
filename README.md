@@ -2,6 +2,8 @@
 
 List the NuGet packages a repository references, grouped by the project that references them.
 
+`nu(get)` `ls`.
+
 ```console
 $ nuls
 src/Api/Api.csproj
@@ -33,12 +35,6 @@ Serilog  — 2 versions in use
   4.2.0              customer-jobs, customer-web
 ```
 
-## Install
-
-```bash
-npm install -g @fub4r/nuls
-```
-
 ## Requirements
 
 - Node.js 22 or newer
@@ -46,11 +42,24 @@ npm install -g @fub4r/nuls
 
 No restore and no network either way: MSBuild is asked to *evaluate* a project, not to build or restore it.
 
-## Use
+## Install
+
+```bash
+npm install -g @fub4r/nuls
+```
+
+## The whole parameter surface
 
 ```
-nuls [--filter <glob>] [--json] [--files]
-nuls --merge [--by package|project] [--filter <glob>] [--json]
+nuls
+  -f, --filter <glob>
+  -j, --json
+      --files
+
+nuls --merge
+  -b, --by <package|project>
+  -f, --filter <glob>
+  -j, --json
 ```
 
 `nuls` on its own reads the repository in the current directory. `nuls --merge` reads those listings back on standard input and reports across all of them.
