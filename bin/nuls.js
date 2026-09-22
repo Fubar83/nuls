@@ -245,6 +245,6 @@ process.stdout.on('error', (error) => {
 try {
   process.exitCode = await run(process.argv.slice(2));
 } catch (error) {
-  process.stderr.write(`error: ${error.message}\n`);
+  process.stderr.write(`${note.red(`error: ${error.message}`)}\n`);
   process.exitCode = error.exitCode ?? EXIT.RUNTIME;
 }
