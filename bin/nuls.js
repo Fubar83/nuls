@@ -8,6 +8,7 @@ import {
   formatByProject,
 } from '../src/merge.js';
 import { paletteFor } from '../src/color.js';
+import { EXIT, RuntimeError, UsageError, reportError } from '../src/errors.js';
 import { scanRepo } from '../src/scan.js';
 import { tabulate } from '../src/table.js';
 
@@ -44,18 +45,16 @@ from, so a sweep across many repositories needs no glue:
 repwrk writes its own headers to standard error, so only the packages reach
 the pipe.`;
 
-const EXIT = { SUCCESS: 0, RUNTIME: 1, USAGE: 2 };
+const HINT = `Usage:
+  nuls [-f|--filter <glob>] [-j|--json] [--files]
+  nuls -m|--merge [-b|--by package|project] [-f|--filter <glob>] [-j|--json]`;
 
 /** Data goes to stdout and commentary to stderr, each coloured on its own terms. */
 const NO_VERSION_FOUND = '(no version found)';
 const ink = paletteFor(process.stdout);
 const note = paletteFor(process.stderr);
 
-function usageError(message) {
-  const error = new Error(message);
-  error.exitCode = EXIT.USAGE;
-  return error;
-}
+const usageError = (message) => new UsageError(message, { hint: HINT });
 
 /**
  * One-letter forms.
@@ -108,13 +107,13 @@ function parse(argv) {
       // An empty filter would read as "no filter" and widen the listing to
       // everything, which is the opposite of what was asked for.
       if (value === undefined || value === '' || value.startsWith('-')) {
-        throw usageError(`${typed} requires a glob`);
+        throw usageError(`${typed} requires a value`);
       }
       options.filter = value;
       index += 1;
     } else if (token.startsWith('--filter=')) {
       const value = token.slice('--filter='.length);
-      if (value === '') throw usageError(`${typed} requires a glob`);
+      if (value === '') throw usageError(`${typed} requires a value`);
       options.filter = value;
     } else {
       throw usageError(
@@ -132,7 +131,9 @@ function readStdin() {
   return new Promise((resolve, reject) => {
     process.stdin.on('data', (chunk) => (data += chunk));
     process.stdin.on('end', () => resolve(data));
-    process.stdin.on('error', reject);
+    process.stdin.on('error', (error) =>
+      reject(new RuntimeError(error.message, { component: 'stdin' })),
+    );
   });
 }
 
@@ -238,13 +239,11 @@ async function run(argv) {
 // Piping into `head` and friends closes stdout early; that is not an error.
 process.stdout.on('error', (error) => {
   if (error.code === 'EPIPE') process.exit(process.exitCode ?? EXIT.SUCCESS);
-  process.stderr.write(`${note.red(`error: ${error.message}`)}\n`);
-  process.exit(EXIT.RUNTIME);
+  process.exit(reportError(error));
 });
 
 try {
   process.exitCode = await run(process.argv.slice(2));
 } catch (error) {
-  process.stderr.write(`${note.red(`error: ${error.message}`)}\n`);
-  process.exitCode = error.exitCode ?? EXIT.RUNTIME;
+  process.exitCode = reportError(error);
 }
